@@ -632,6 +632,30 @@ Both identities are auto-funded via Friendbot on testnet. See
 
 ---
 
+## Phase 2 — Escrow Rail (Trustless Work)
+
+InvoFi's Phase-2 escrow integration turns the riskiest money movements into
+milestone-verified escrows on [Trustless Work](https://www.trustlesswork.com) —
+**audited** (Runtime Verification), **SCF-funded** ($118K across 2 rounds), and
+part of the **SCF Integration Track**. Their escrow infrastructure on Stellar
+Soroban (USDC-native) becomes the payment rail for InvoFi's riskiest transfers:
+
+1. **Disbursement escrow** — the financed amount from `accept_offer` is held in
+   escrow until the originator's customer confirms delivery, then released to
+   the originator (converts financing from unsecured to delivery-verified).
+2. **Repayment escrow** — guaranteed principal + yield release to lenders at
+   maturity.
+3. **Dispute routing** — InvoFi's `Disputed` state handed to Trustless Work's
+   Dispute Resolver role.
+4. **Insurance payout rail** — default payouts released through escrow with the
+   insurance contract as resolver.
+
+Full research, delivery plan (epics + GrantFox-ready issues), hands-on
+integration steps, and the partnership approach:
+**[docs/trustless-work-integration.md](./docs/trustless-work-integration.md)**
+
+---
+
 ## Maintainers
 
 <table>
