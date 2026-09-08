@@ -22,7 +22,14 @@ import {
 } from '@invofi/sdk';
 import { USDC_ISSUER_TESTNET } from './constants';
 import { isMockMode } from './mock-mode';
-import { signTransactionWithActiveWallet } from './walletkit';
+
+// NOTE: `signTransactionWithActiveWallet` is imported lazily inside
+// `signAndSubmitViaProxy` rather than statically. A static import would pull
+// `@stellar/freighter-api` into every module-eval that touches this file
+// (including jsdom unit tests that render OfferList without mocking the
+// escrow lib), and freighter-api is CommonJS-only — it explodes under vitest
+// ESM named-export resolution. The escrow rail is env-gated and never called
+// in tests, so lazy-loading is both correct and test-safe.
 
 const FLAG = process.env.NEXT_PUBLIC_TRUSTLESS_WORK_API_KEY ?? '';
 const TW_ENV = (process.env.NEXT_PUBLIC_TRUSTLESS_WORK_ENV ?? 'testnet') as 'testnet' | 'mainnet';
@@ -79,6 +86,7 @@ async function buildViaProxy(action: EscrowAction, body: Record<string, unknown>
  * the proxy (which forwards to TW's /stellar/send-transaction).
  */
 async function signAndSubmitViaProxy(unsignedXdr: string): Promise<SendTransactionResult> {
+  const { signTransactionWithActiveWallet } = await import('./walletkit');
   const signedXdr = await signTransactionWithActiveWallet(unsignedXdr, TW_ENV === 'mainnet'
     ? 'Public Global Stellar Network ; September 2015'
     : 'Test SDF Network ; September 2015');
