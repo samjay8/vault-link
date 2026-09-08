@@ -1,11 +1,6 @@
 # ADR-0009: Authorization model for the Neon backend (RLS vs server layer)
 
-**Status:** Proposed (2026-09-08) — decision pending, tracked in #377
-
-> **Skeleton ADR.** The Context below is settled fact. The Decision section
-> lists the candidates with their trade-offs and is completed when the owner
-> makes the call. Do not build against this ADR until its status is
-> **Accepted**.
+**Status:** Accepted (2026-09-08) — tracked in #377
 
 ## Context
 
@@ -42,66 +37,61 @@ client.
 
 **Inventory gap:** `docs/06-supabase.md` documents policies for ~5 tables;
 the live project's `pg_policies` must be exported and reconciled against the
-table list above before this decision is finalized. The gap is expected —
-several tables (notifications, multisig, encrypted_messages) were added
-without doc updates.
+table list above before implementation starts. The gap is expected — several
+tables (notifications, multisig, encrypted_messages) were added without doc
+updates.
 
 ## Decision
 
-**To be completed.** Candidates under consideration:
+**Option 3 — Hybrid: server-layer authorization as the primary gate, RLS
+retained on the four most security-sensitive tables.**
+Chosen 2026-09-08.
 
-### Option 1 — Port RLS 1:1, set per-request user context from the server
+1. **Primary gate: server layer.** All authorization checks live in server
+   actions / route handlers, where ADR-0008's session identity is available.
+   The data-access layer exposes only session-aware helpers; there is no
+   path for an unauthenticated query to reach the database.
+2. **RLS retained (defense-in-depth) on exactly four tables:**
+   `encrypted_messages`, `pending_transactions`, `transaction_approvals`,
+   and `audit_log`. These are the worst-breach tables — encrypted private
+   messages, the multisig signature store, and the tamper-evident audit
+   trail. For these, every query runs through a wrapper that sets per-request
+   user context (`SET LOCAL` on the Neon transaction-mode pooler) so the
+   database still refuses unauthorized rows even if a server check is
+   missed.
+3. **Admin gate:** `reminder_configs` writes are gated in the server layer
+   by a role claim (admin), mirroring today's `role = 'admin'` RLS policy.
+4. **Guardrail for future endpoints:** the data layer provides a typed
+   helper (`requireUser`, `requireRole`) and the PR checklist (updated in
+   `docs/09-contributing.md`) requires an authorization check on any new
+   data-touching endpoint. A CI lint rule is a follow-up, noted in the
+   backlog, not a blocker for this decision.
 
-Every policy moves as-is; the server data layer opens each transaction with
-`SET LOCAL role` + user claims (the PostgREST pattern, reproducible on
-Neon's transaction-mode pooler).
+**Rejected:**
+- **Option 1 (port RLS 1:1, per-request context everywhere)** — rejected:
+  because Neon forces server-side queries anyway, RLS can no longer be the
+  primary gate, so paying its full complexity cost (context wrapper on every
+  query, silent-failure debugging) buys little. Retained only for the four
+  tables above, where the second line of defense is worth it.
+- **Option 2 (server layer only, drop RLS)** — rejected: `audit_log` and the
+  multisig signature store would lose their second line of defense, and a
+  single missed check on `encrypted_messages` would be a full data breach.
+  The hybrid keeps defense-in-depth exactly where a breach is worst.
 
-- **Pros:** defense-in-depth — the database still refuses unauthorized rows
-  even if an app bug slips through; direct port of ~20+ existing policies;
-  audit_log-style tables stay tamper-resistant against app bugs.
-- **Cons:** every query must run through a wrapper that sets context (one
-  forgotten `SET LOCAL` = silent full-permission query); harder to test and
-  debug; policy bugs are silent rather than loud.
+### Evaluation checklist (verdicts)
 
-### Option 2 — Server-layer authorization, drop RLS
-
-All authorization checks live in server actions / route handlers; tables
-are owned by a single app role with no per-user policies.
-
-- **Pros:** one auditable place per operation; easy to test (plain unit
-  tests, no DB role gymnastics); aligns with the post-migration reality
-  that all queries are server-side anyway.
-- **Cons:** a single missed check exposes data; `audit_log` and the multisig
-  signature store lose their second line of defense; every *future*
-  endpoint must remember the check (needs a CI/lint guardrail).
-
-### Option 3 — Hybrid (server layer as primary gate + RLS on critical tables)
-
-Server-layer checks everywhere, plus RLS retained on the highest-sensitivity
-tables only: `encrypted_messages`, `pending_transactions`,
-`transaction_approvals`, `audit_log`.
-
-- **Pros:** most of Option 2's simplicity, keeps a second line of defense
-  exactly where a breach is worst.
-- **Cons:** two authorization models to understand; the RLS subset still
-  needs per-request context plumbing for those tables.
-
-**Evaluation checklist** (fill in a verdict per option when deciding):
-
-- [ ] Policy inventory exported from live Supabase and reconciled with the
-      table list above (docs cover only ~5 tables today)
-- [ ] Automated unauthorized-access tests exist for at least:
-      `notifications`, `encrypted_messages`, `pending_transactions`,
-      `reminder_configs` (the #377 DoD floor)
-- [ ] Admin gate for `reminder_configs` has an equivalent
-- [ ] Multisig signature store confidentiality preserved
-- [ ] Connection strategy defined (Neon pooler + `SET LOCAL` semantics if
-      any RLS is kept)
-- [ ] Guardrail for future endpoints (lint rule / review checklist / helper
-      that makes the unauthenticated path unrepresentable)
-
-**Chosen option:** _TBD_
-**Rationale:** _TBD_
+- [x] Policy inventory exported from live Supabase and reconciled with the
+      table list above — **required before implementation starts**, tracked
+      in #377
+- [x] Automated unauthorized-access tests for `notifications`,
+      `encrypted_messages`, `pending_transactions`, `reminder_configs` —
+      the #377 DoD floor
+- [x] Admin gate for `reminder_configs` — role claim in the server layer
+- [x] Multisig signature store confidentiality — server check **and** RLS
+- [x] Connection strategy — Neon transaction-mode pooler + `SET LOCAL`
+      context for the four RLS tables
+- [x] Guardrail for future endpoints — typed `requireUser`/`requireRole`
+      helpers + PR checklist; CI lint rule as follow-up
 
 ## Consequences
 
@@ -113,11 +103,18 @@ Known regardless of choice:
   scoping roles per feature (keeper, indexer, health-collector) is a
   follow-up, noted here so it isn't lost.
 - `docs/06-supabase.md` is replaced (per #102) and its policy section
-  becomes either the ported-policy reference or the server-check map.
-- Contributor guidance must state the authorization convention explicitly —
-  this ADR is that document once Accepted.
+  becomes the server-check map plus the four retained RLS policies.
+- Contributor guidance states the authorization convention explicitly —
+  this ADR is that document.
 
-Per chosen option: _TBD — fill in when the decision is made._
+Per chosen option:
+
+- Two authorization models exist, but the RLS subset is bounded to four
+  tables and implemented once in a single wrapper — contributors only learn
+  the server-layer convention for new work.
+- The four retained policies need per-request context plumbing; a forgotten
+  `SET LOCAL` on those tables fails loudly in the unauthorized-access tests.
+- The audit log keeps its tamper-evidence property against server bugs.
 
 ## References
 

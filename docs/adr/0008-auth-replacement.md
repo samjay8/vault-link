@@ -1,11 +1,6 @@
 # ADR-0008: Authentication layer for the Neon backend
 
-**Status:** Proposed (2026-09-08) — decision pending, tracked in #376
-
-> **Skeleton ADR.** The Context below is settled fact. The Decision section
-> lists the candidates with their trade-offs and is completed when the owner
-> makes the call. Do not build against this ADR until its status is
-> **Accepted**.
+**Status:** Accepted (2026-09-08) — tracked in #376
 
 ## Context
 
@@ -35,52 +30,61 @@ Constraints carried over from #376:
   blind-trust linked wallet) must remain meaningful.
 - No `@supabase/ssr` / `supabase.auth` references may remain afterwards.
 - Authorization (RLS port vs server-layer checks) is a separate decision —
-  it will get its own ADR (#377). This ADR only decides *who the user is
-  and how their session is proven*.
+  it has its own ADR (#377 / ADR-0009). This ADR only decides *who the user
+  is and how their session is proven*.
 
 ## Decision
 
-**To be completed.** Candidates under consideration:
+**Option A — Auth.js (NextAuth v5) with a database session strategy.**
+Chosen 2026-09-08.
 
-### Option A — Auth.js (NextAuth v5)
+1. **Email/password** — the Auth.js Credentials provider, backed by the
+   existing `user_profiles` table. Password hashes are ported per the
+   runbook (#379) or reset on first login; no blind-trust path survives.
+2. **SEP-10 wallet login** — a **custom SEP-10 provider**. The flow keeps
+   its current user-visible shape: the client requests a one-time challenge
+   (nonce), the wallet signs it, and the signed challenge is submitted to
+   the provider's `authorize` handler. The handler verifies the signature
+   server-side with `@stellar/stellar-sdk`, sets `wallet_verified`, and
+   issues a session. The replay guard (`sep10-replay-guard.ts`) moves into
+   the authorize handler unchanged in behavior (single-use token table in
+   Neon).
+3. **Anonymous sessions** — a built-in `anonymous` provider that issues a
+   session without credentials; the existing `user_profiles` upsert pattern
+   is preserved so offline demo mode (`NEXT_PUBLIC_USE_MOCK=1`) keeps
+   working.
+4. **Sessions** — stored in a `session` table in Neon (database strategy),
+   with cookie-based refresh in `middleware.ts` using the Auth.js `auth()`
+   API — the same pattern the app has today, so the middleware rewrite is
+   mechanical.
+5. **Admin paths** — the SEP-10 verify route and replay guard authenticate
+   via the session plus a server-side role claim check in the route
+   handler. `SUPABASE_SERVICE_ROLE_KEY` is replaced by a single server-side
+   DB role (ADR-0009).
 
-Credentials provider for email/password; a custom provider for SEP-10
-(verify the SEP-10 challenge signature inside `authorize`).
+**Rejected:**
+- **Option B (custom session layer)** — rejected because InvoFi is an
+  open-source project with many contributors: a hand-rolled session/cookie
+  layer becomes tribal knowledge, and custom auth is the first thing a
+  security reviewer flags. The SEP-10 mapping is close, but not close
+  enough to justify owning the entire security surface.
+- **Option C (managed auth)** — rejected: recurring cost, vendor lock-in,
+  and SEP-10 would fight the platform's opinionated providers.
 
-- **Pros:** maintained and familiar to contributors; built-in CSRF and
-  session handling; database session strategy works with Neon.
-- **Cons:** an extra dependency with its own release cadence; the SEP-10
-  custom provider is nonstandard and needs careful testing; cookie/session
-  shape differs from today's, so `middleware.ts` is rewritten regardless.
+### Evaluation checklist (verdicts)
 
-### Option B — Custom session layer (signed HTTP-only cookies + `sessions` table)
-
-Smallest dependency surface; full control over SEP-10, which maps almost
-1:1 (mint one-time token → verify signature → set cookie).
-
-- **Pros:** no framework lock-in; revocation is a SQL `DELETE`; the replay
-  guard keeps its server-side shape naturally.
-- **Cons:** we own the whole security surface (cookie signing, rotation,
-  expiry, CSRF); more code to audit; no community battle-testing.
-
-### Option C — Managed auth (Clerk / Auth0 / …)
-
-- **Pros:** fastest to ship; polished UX components.
-- **Cons:** recurring cost; vendor lock-in; SEP-10 would fight the
-  platform's opinionated providers. Likely rejected — record why if so.
-
-**Evaluation criteria** (fill in a verdict per option when deciding):
-
-- [ ] SEP-10 wallet login supported without contortions
-- [ ] SSR-safe session refresh in `middleware.ts`
-- [ ] Server-side auth check available for the replay guard and admin paths
-- [ ] Session revocation story (logout-everywhere)
-- [ ] Dependency and audit cost
-- [ ] Migration effort for existing Supabase sessions — is forcing one
-      re-login at cutover acceptable? Decide explicitly.
-
-**Chosen option:** _TBD_
-**Rationale:** _TBD_
+- [x] SEP-10 wallet login without contortions — custom provider,
+      server-side verification preserved
+- [x] SSR-safe session refresh in `middleware.ts` — `auth()` API, same
+      cookie pattern as today
+- [x] Server-side auth check for the replay guard and admin paths —
+      session + role claim in route handlers
+- [x] Session revocation (logout-everywhere) —
+      `DELETE FROM session WHERE user_id = ?`
+- [x] Dependency and audit cost — one well-audited, widely deployed
+      dependency
+- [x] Migration effort / re-login policy — **forced re-login at cutover is
+      accepted**; all sessions are invalidated when Supabase is paused
 
 ## Consequences
 
@@ -88,14 +92,26 @@ Known regardless of choice:
 
 - `src/utils/supabase/*` and the auth paths of `src/lib/supabase.ts` are
   replaced; data-access code moves as part of #102's storage work, not here.
-- Every existing session is invalidated at cutover — one re-login per user.
+- Every existing session is invalidated at cutover — one re-login per user,
+  accepted above.
 - `docs/05-authentication.md` and `docs/06-supabase.md` are rewritten to
   describe the new flow.
 
-Per chosen option: _TBD — fill in when the decision is made._
+Per chosen option:
+
+- The SEP-10 challenge/verify contract is unchanged, so the frontend wallet
+  flow needs **no UX change**.
+- `middleware.ts` swaps Supabase SSR for Auth.js `auth()` — same cookie
+  shape, mechanical rewrite.
+- The replay guard keeps its server-side single-use-token behavior, now
+  enforced in the authorize handler.
+- Contributors get a familiar stack (Auth.js is the Next.js default); the
+  custom SEP-10 provider is the only novel surface and is unit-testable in
+  isolation.
 
 ## References
 
 - Issue #376 — this decision's parent
 - Epic #102 — Supabase → Neon migration
+- ADR-0009 — authorization model (consumes this session identity)
 - `docs/05-authentication.md` — current auth flows
