@@ -1,6 +1,6 @@
 # ADR-0008: Authentication layer for the Neon backend
 
-**Status:** Accepted (2026-09-08) — tracked in #376
+**Status:** Accepted (2026-09-08), amended 2026-09-08 (wallet-only sign-in) — tracked in #376
 
 ## Context
 
@@ -108,6 +108,51 @@ Per chosen option:
 - Contributors get a familiar stack (Auth.js is the Next.js default); the
   custom SEP-10 provider is the only novel surface and is unit-testable in
   isolation.
+
+## Amendment 001 (2026-09-08): Wallet-only sign-in
+
+**Decision change — supersedes item 1 of the original Decision:**
+email/password is **removed entirely**. SEP-10 wallet connection is the
+only sign-in mechanism. Auth.js remains the chosen framework, but ships
+with the custom SEP-10 provider **only** — no Credentials provider,
+no email/password path on the new backend.
+
+**Reason:** product direction — InvoFi is a Stellar-native, wallet-first
+product; email/password is not the audience and adds surface area.
+
+### Identity model (post-migration target)
+
+- **Sign-in** = SEP-10 wallet connection via the approved-wallet kit
+  (ADR-0001). No separate register page: first connect triggers a
+  **one-time profile setup step**.
+- `user_profiles` gains three columns:
+  - `username` — unique, **immutable** handle (set once at setup)
+  - `display_name` — **editable**; the business name when
+    `role = 'business'`
+  - `role` — `'lender' | 'business'`, **switchable from settings**
+- The **wallet address remains the primary identity key**; the handle is
+  a public label, `/users/:username` URLs and mentions are future uses.
+- **Anonymous sessions** are retained only for mock/offline demo mode
+  (`NEXT_PUBLIC_USE_MOCK=1`), not as a user-facing sign-in.
+
+### Implications for this ADR's earlier evaluation
+
+- The evaluation checklist's email/password items are void; the SEP-10,
+  SSR-refresh, revocation, and dependency-cost verdicts stand.
+- Option C (managed auth) rejection is unchanged; the custom-session
+  rejection rationale (Option B) is unchanged.
+- **Existing email/password accounts** at cutover: their password path is
+  removed; users reconnect via wallet (wallet address becomes their
+  identity). No data loss — the profile row persists.
+
+### Consequences
+
+- Auth.js migration scope shrinks: one provider (SEP-10) instead of two.
+- Frontend: login page drops the email/password form; onboarding adds the
+  setup step; settings gains role/display-name controls. Tracked in the
+  frontend wallet-first onboarding issue.
+- `docs/05-authentication.md` and the README auth sections are rewritten
+  at cutover (wallet-only, not "dual auth").
 
 ## References
 
