@@ -104,6 +104,54 @@ export {
 // don't need a direct @stellar/stellar-sdk dependency for common cases.
 export { Contract, Networks, xdr, nativeToScVal, scValToNative } from '@stellar/stellar-sdk';
 
+// ── Trustless Work escrow adapter (Phase 2 — Escrow Rail) ──────────────────
+// Typed client for the Trustless Work Core API (v2 single-release escrows):
+// milestone-gated disbursement on `accept_offer` (lender → escrow →
+// originator), with the same build → sign → submit loop the frontend
+// already uses. Fully optional — nothing else in the SDK touches it.
+//
+// @example
+// ```ts
+// import { createTrustlessWorkClient, usdcTestnetTrustline } from '@invofi/sdk';
+//
+// const tw = createTrustlessWorkClient({
+//   env: 'testnet',
+//   apiKey: process.env.TW_API_KEY!, // `id.secret` from the TW Backoffice
+//   networkPassphrase: Networks.TESTNET,
+//   signTransaction: signTransactionWithActiveWallet,
+// });
+//
+// const { built, submitted } = await tw.buildSignSubmit(
+//   tw.buildDisbursementEscrow({
+//     invoiceId: 'inv_001', offerId: 'off_001',
+//     amountHuman: 1250.5,
+//     lenderAddress, originatorAddress, platformAddress,
+//     platformFeePercent: 0.5,
+//     trustline: usdcTestnetTrustline(USDC_ISSUER_TESTNET),
+//   }),
+// );
+// // built.contractId → the escrow's future on-chain address; persist it.
+// ```
+export {
+  createTrustlessWorkClient,
+  mapToDeployPayload,
+  usdcTestnetTrustline,
+  TrustlessWorkError,
+  DELIVERY_MILESTONE_DESCRIPTION,
+} from './escrow';
+export type {
+  TrustlessWorkConfig,
+  TrustlessWorkClient,
+  TrustlessWorkEnv,
+  EscrowRoles,
+  EscrowTrustline,
+  EscrowMilestone,
+  DeployEscrowPayload,
+  DisbursementEscrowParams,
+  UnsignedTransaction,
+  SendTransactionResult,
+} from './escrow';
+
 // ── Event stream (listenToEvents) ───────────────────────────────────────────
 // Typed, polling-based event subscription for InvoFi protocol events.
 // All 20 on-chain event types are covered with strongly-typed payloads.

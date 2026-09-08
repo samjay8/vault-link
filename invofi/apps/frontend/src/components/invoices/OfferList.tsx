@@ -22,6 +22,7 @@ import {
   encodeI128,
 } from '@/lib/simulate';
 import { supabase } from '@/lib/supabase';
+import { isEscrowEnabled, createDisbursementEscrow, fundEscrow, escrowTrustlineForCurrency } from '@/lib/escrow';
 import { formatAmount as formatUnits, generateOfferId, amountToStroops, toStroopsBigInt, OFFER_STATUS_COLORS } from '@/lib/utils';
 import { toCsv, downloadCsv } from '@/lib/csv';
 import {
@@ -252,6 +253,44 @@ export function OfferList({ invoiceId, invoice, onUpdate }: OfferListProps) {
       const updatedInvoice = { ...invoice, status: 'Financed' as const };
       await supabase.from('invoices').update({ status: 'Financed' }).eq('id', invoiceId);
       onUpdate(updatedInvoice);
+
+      // ── Escrow rail (Phase 2): milestone-gated disbursement ─────────────
+      // When the rail is enabled (env-flagged), route the disbursement
+      // lender → escrow → originator instead of leaving it as a bare
+      // direct transfer. Deploy + fund run from the lender's wallet; the
+      // release happens later once the delivery milestone is approved.
+      // Best-effort: a failure here NEVER rolls back the accepted offer —
+      // the financing is already final on-chain; the escrow leg can be
+      // retried from the offer's escrow status affordance.
+      if (isEscrowEnabled() && offer.currency === 'USDC') {
+        const trustline = escrowTrustlineForCurrency('USDC');
+        if (trustline) {
+          try {
+            const amountHuman = Number(offer.amount) / 1e7;
+            const { contractId } = await createDisbursementEscrow({
+              invoiceId,
+              offerId: offer.id,
+              amountHuman,
+              lenderAddress: offer.lender,
+              originatorAddress: invoice.originator,
+              trustline,
+            });
+            if (contractId) {
+              await fundEscrow(contractId, offer.lender, amountHuman);
+              await supabase.from('financing_offers').update({ escrow_contract_id: contractId }).eq('id', offer.id);
+            }
+            toast({ title: t('toast.escrowFunded'), description: t('toast.escrowFundedHint') });
+          } catch (escrowErr: unknown) {
+            console.error('[escrow] disbursement escrow failed (offer remains accepted):', escrowErr);
+            toast({
+              title: t('toast.escrowFailed'),
+              description: toErrorMessage(escrowErr, t('toast.escrowFailedHint')),
+              variant: 'destructive',
+            });
+          }
+        }
+      }
+
       toast({ title: t('toast.accepted'), description: t('toast.acceptedHint') });
     } catch (err: unknown) {
       // Rollback: revert to the previous states on failure.
