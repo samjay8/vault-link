@@ -14,6 +14,7 @@ append, never rewrite (status updates go in the file).
 | 0007 | [Repository topology and SDK location](./0007-repo-topology-and-sdk.md) | Accepted |
 | 0008 | [Authentication layer for the Neon backend](./0008-auth-replacement.md) | Accepted |
 | 0009 | [Authorization model for the Neon backend](./0009-authorization-model.md) | Accepted |
+| 0010 | [Trustless Work escrow rail for disbursements](./0010-trustless-work-escrow-rail.md) | Accepted |
 
 Contract-facing decisions live in the contracts repo: [invofi-contracts/docs/adr](https://github.com/Stellar-VaultLink/invofi-contracts/blob/master/docs/adr/README.md).
 

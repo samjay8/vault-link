@@ -650,9 +650,13 @@ Soroban (USDC-native) becomes the payment rail for InvoFi's riskiest transfers:
 4. **Insurance payout rail** — default payouts released through escrow with the
    insurance contract as resolver.
 
-Full research, delivery plan (epics + GrantFox-ready issues), hands-on
-integration steps, and the partnership approach:
+**Status (2026-09-08): the core rail is shipped** — a typed zero-dependency
+adapter for the TW Core API v2 in `@invofi/sdk`, a server-side key proxy
+(`/api/escrow/*`), and best-effort escrow deploy+fund wired into the
+`accept_offer` flow (USDC, feature-flagged). The rail is dark until the
+Trustless Work API key is added — activation checklist and full status:
 **[docs/trustless-work-integration.md](./docs/trustless-work-integration.md)**
+(see its Part 0) · Decision record: [ADR-0010](./docs/adr/0010-trustless-work-escrow-rail.md)
 
 ---
 
